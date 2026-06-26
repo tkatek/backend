@@ -1,7 +1,5 @@
-<script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
-</script>
-
 <template>
-  <HelloWorld />
+  <main class="min-h-screen bg-neutral-50 font-sans text-neutral-900 antialiased">
+    <router-view />
+  </main>
 </template>
