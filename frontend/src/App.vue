@@ -3,3 +3,7 @@
     <router-view />
   </main>
 </template>
+
+<script setup lang="ts">
+// Root wrapper configuration
+</script>

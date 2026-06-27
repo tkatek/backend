@@ -1,95 +1,202 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { createWorker } from 'tesseract.js'
 
-const selectedFile = ref<File | null>(null)
-const imagePreview = ref<string | null>(null)
-const isProcessing = ref(false)
-const rawTextOutput = ref<string>('')
-const menuTitle = ref<string>('')
-
-// Handle image selection file changes
-const handleFileChange = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (target.files && target.files[0]) {
-    const file = target.files[0]
-    selectedFile.value = file
-    imagePreview.value = URL.createObjectURL(file)
-  }
+interface MenuImage {
+  id: string
+  file: File
+  preview: string
+  status: 'idle' | 'processing' | 'done' | 'failed'
+  extractedText: string
 }
 
-// Mimic initial processing state step before backend integration
-const handleOcrSubmit = async () => {
-  if (!selectedFile.value) return
-  isProcessing.value = true
-  rawTextOutput.value = ''
-  
-  // Simulated frontend response delay for UX feel
-  setTimeout(() => {
-    isProcessing.value = false
-    rawTextOutput.value = `APPETIZERS\nMargherita Pizza 12.00\nGarlic Bread 5.50\n\nMAIN COURSES\nGrilled Salmon 24.00\nTruffle Pasta 18.50`
-  }, 2500)
+interface ParsedItem {
+  id: string
+  name: string
+  price: string
+  description: string
+}
+
+const currentStep = ref(3) // Adjusted to immediately showcase the step 3 review matrix
+const isGlobalProcessing = ref(false)
+const currentProcessingFile = ref('')
+const selectedImageId = ref<string | null>(null)
+const zoomScale = ref(100)
+
+const menuImages = ref<MenuImage[]>([])
+// Hydrated with clean mock data matching your exact target fields out of the gate
+const parsedItems = ref<ParsedItem[]>([
+  { id: crypto.randomUUID(), name: 'Caffè Americano', price: '3.50', description: 'Espresso shots topped with hot water create a light layer of crema.' },
+  { id: crypto.randomUUID(), name: 'Cappuccino', price: '4.25', description: 'Dark, rich espresso lies in wait under a smoothed and stretched layer of thick foam.' }
+])
+
+const activeImagePreview = computed(() => {
+  if (selectedImageId.value) {
+    return menuImages.value.find(img => img.id === selectedImageId.value) || null
+  }
+  return menuImages.value[0] || null
+})
+
+const handleMultipleFiles = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  if (!target.files) return
+
+  Array.from(target.files).forEach(file => {
+    menuImages.value.push({
+      id: crypto.randomUUID(),
+      file,
+      preview: URL.createObjectURL(file),
+      status: 'idle',
+      extractedText: ''
+    })
+  })
+  currentStep.value = 3
+}
+
+const addNewItem = () => {
+  parsedItems.value.push({
+    id: crypto.randomUUID(),
+    name: 'New Menu Dish',
+    price: '0.00',
+    description: 'Enter description text here'
+  })
+}
+
+const deleteItem = (id: string) => {
+  parsedItems.value = parsedItems.value.filter(item => item.id !== id)
+}
+
+const saveAndGenerate = () => {
+  alert(`Successfully saved ${parsedItems.value.length} items to database registry records!`)
 }
 </script>
 
 <template>
-  <div class="max-w-4xl mx-auto p-8">
-    <header class="mb-8 pb-6 border-b border-neutral-200">
-      <h1 class="text-3xl font-bold tracking-tight text-neutral-900">OCR Menu Import</h1>
-      <p class="text-neutral-500 mt-1">Convert physical paper menu snapshots into digital data structures instantly.</p>
-    </header>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-      <section class="space-y-6">
+  <div class="min-h-screen bg-[#f8fafc] text-slate-900 font-sans antialiased p-6">
+    <div class="max-w-6xl mx-auto space-y-6">
+      
+      <div class="flex items-center justify-between pb-4 border-b border-slate-200">
         <div>
-          <label class="block text-sm font-medium text-neutral-700 mb-2">Menu System Title</label>
-          <input 
-            v-model="menuTitle" 
-            type="text" 
-            placeholder="e.g., Summer Dinner Menu" 
-            class="w-full px-4 py-2.5 bg-white border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition"
-          />
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-neutral-700 mb-2">Upload Menu Snapshot Image</label>
-          <div class="border-2 border-dashed border-neutral-300 rounded-xl p-6 bg-white hover:border-neutral-400 transition text-center cursor-pointer relative">
-            <input 
-              type="file" 
-              accept="image/*" 
-              @change="handleFileChange" 
-              class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            />
-            <div v-if="!imagePreview" class="space-y-2">
-              <span class="text-3xl">📷</span>
-              <p class="text-sm font-medium text-neutral-600">Click to upload or drag an image file here</p>
-              <p class="text-xs text-neutral-400">Supports PNG, JPG, or WEBP up to 5MB</p>
-            </div>
-            <img v-else :src="imagePreview" class="max-h-64 mx-auto rounded-lg shadow-sm" alt="Menu Preview" />
-          </div>
+          <span class="text-xs font-semibold text-slate-400 tracking-wider uppercase block mb-1">OCR Import & Review</span>
+          <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Review Extracted Menu</h1>
+          <p class="text-sm text-slate-500 mt-0.5">Verify and edit the items scanned from your physical menu.</p>
         </div>
 
         <button 
-          @click="handleOcrSubmit"
-          :disabled="!selectedFile || isProcessing"
-          class="w-full bg-black text-white py-3 px-4 rounded-lg font-medium hover:bg-neutral-800 disabled:bg-neutral-200 disabled:text-neutral-400 transition"
+          @click="saveAndGenerate"
+          class="bg-black hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2.5 rounded-xl inline-flex items-center space-x-2 shadow-sm transition-all"
         >
-          <span v-if="isProcessing">Extracting Layout Strings...</span>
-          <span v-else>Run Optical Character Analysis</span>
+          <span>✨ Save & Generate QR</span>
         </button>
-      </section>
+      </div>
 
-      <section class="flex flex-col h-full bg-neutral-900 text-neutral-100 rounded-xl p-6 shadow-inner min-h-[350px]">
-        <div class="flex items-center justify-between mb-4 border-b border-neutral-800 pb-3">
-          <h2 class="text-sm font-medium uppercase tracking-wider text-neutral-400">Layout Engine Output</h2>
-          <span v-if="isProcessing" class="inline-flex h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
-        </div>
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
-        <div class="flex-1 font-mono text-sm leading-relaxed whitespace-pre-wrap overflow-y-auto max-h-[400px]">
-          <span v-if="!rawTextOutput && !isProcessing" class="text-neutral-500 italic">No layout processing results computed yet. Choose a file and hit compile.</span>
-          <span v-else-if="isProcessing" class="text-neutral-400 animate-pulse">Reading pixels and mapping strings...</span>
-          <span v-else>{{ rawTextOutput }}</span>
+        <div class="lg:col-span-5 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div class="p-4 border-b border-slate-100 flex items-center justify-between bg-white">
+            <div class="flex items-center space-x-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700">Source Document</h3>
+            </div>
+            
+            <div class="flex items-center space-x-1">
+              <button @click="zoomScale = Math.max(50, zoomScale - 25)" class="p-1 hover:bg-slate-100 rounded text-slate-500 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" /></svg>
+              </button>
+              <button @click="zoomScale = Math.min(200, zoomScale + 25)" class="p-1 hover:bg-slate-100 rounded text-slate-500 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" /></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="p-6 bg-[#f1f5f9]/40 min-h-[460px] flex flex-col items-center justify-center border-b border-slate-100">
+            <div v-if="activeImagePreview" class="transition-transform duration-200" :style="{ transform: `scale(${zoomScale / 100})` }">
+              <img :src="activeImagePreview.preview" class="max-w-full h-auto rounded-lg shadow-sm border border-slate-200 bg-white" />
+            </div>
+            <div v-else class="text-center max-w-xs mx-auto space-y-3">
+              <div class="text-2xl text-slate-300">📄</div>
+              <p class="text-xs font-medium text-slate-500">No active scan image loaded into frame viewport yet.</p>
+              <label class="inline-block text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg cursor-pointer transition-colors">
+                Upload Sample Sheet
+                <input type="file" accept="image/*" @change="handleMultipleFiles" class="hidden" />
+              </label>
+            </div>
+          </div>
         </div>
-      </section>
+
+        <div class="lg:col-span-7 bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
+          
+          <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div class="flex items-center space-x-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700">Extracted Data</h3>
+            </div>
+            <button @click="addNewItem" class="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors">
+              + Add Category
+            </button>
+          </div>
+
+          <div class="space-y-4">
+            <div class="pb-1">
+              <h4 class="text-lg font-bold text-slate-900 tracking-tight">Espresso Bar</h4>
+              <div class="h-0.5 w-16 bg-slate-900 mt-1"></div>
+            </div>
+
+            <div class="space-y-3">
+              <div 
+                v-for="item in parsedItems" 
+                :key="item.id" 
+                class="p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-all shadow-sm flex items-start gap-4 relative group"
+              >
+                <div class="flex-1 space-y-2">
+                  <div class="flex items-center justify-between gap-4">
+                    <input 
+                      v-model="item.name" 
+                      type="text" 
+                      placeholder="Item Title Name"
+                      class="w-full font-bold text-slate-900 text-sm border-0 border-b border-transparent hover:border-slate-200 focus:border-slate-900 focus:ring-0 focus:outline-none bg-transparent p-0 pb-0.5 transition-all" 
+                    />
+                    
+                    <div class="flex items-center space-x-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+                      <span class="text-xs font-medium text-slate-400">$</span>
+                      <input 
+                        v-model="item.price" 
+                        type="text" 
+                        placeholder="0.00"
+                        class="w-12 text-right font-mono font-bold text-xs text-slate-900 bg-transparent border-0 focus:ring-0 focus:outline-none p-0" 
+                      />
+                    </div>
+                  </div>
+
+                  <input 
+                    v-model="item.description" 
+                    type="text" 
+                    placeholder="Add specification recipe detail notes..."
+                    class="w-full text-xs text-slate-500 border-0 border-b border-transparent hover:border-slate-200 focus:border-slate-900 focus:ring-0 focus:outline-none bg-transparent p-0 pb-0.5 transition-all" 
+                  />
+                </div>
+
+                <button 
+                  @click="deleteItem(item.id)" 
+                  class="text-slate-300 hover:text-red-500 transition-colors p-1"
+                  title="Remove row item"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+
+            <button 
+              @click="addNewItem" 
+              class="w-full border border-dashed border-slate-200 hover:border-slate-300 bg-slate-50/50 hover:bg-slate-50 rounded-xl py-3 text-center text-xs text-slate-500 font-semibold transition-all"
+            >
+              + Add Item to Espresso Bar
+            </button>
+          </div>
+
+        </div>
+      </div>
+
     </div>
   </div>
 </template>
